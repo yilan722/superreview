@@ -1,11 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CanvasObject, CanvasTool } from "../types";
+import { mergeSlotObjects, objectSlot, objectsForSlot } from "../canvas/slots";
+import type { CanvasObject, CanvasTool, ImageSlot } from "../types";
+import { CONTEXT_SLOTS } from "../types";
 import { WEDGE_COLORS } from "../types";
 import { findTemplate } from "../palette";
 import type { CanvasBounds } from "../legEq/clamp";
 import { createLegEqObject, duplicateLeg2 } from "../legEq/create";
 import { createMmObject } from "../mm/create";
 import { canvasPoint, type Point } from "../mm/math";
+import {
+  getDisplayedImageRect,
+  isLikelyPixelCoords,
+  migrateObjectsToNorm,
+  normalizeNoteColor,
+  canvasToLayer,
+  objectToLayerDisplay,
+  objectToNorm,
+  patchLayerToNorm,
+  type ImageLayout,
+} from "../chart/imageLayout";
 import { createWedgeObject } from "../wedge/create";
 import { LegEqObject } from "./LegEqObject";
 import { LegEqPreview } from "./LegEqPreview";
@@ -16,10 +29,12 @@ import { WedgeObject } from "./WedgeObject";
 import { WedgePreview } from "./WedgePreview";
 
 interface ChartCanvasProps {
+  slot: ImageSlot;
   chartImage: string | null;
   objects: CanvasObject[];
   selectedId: string | null;
   activeTool: CanvasTool;
+  allowUpload?: boolean;
   onToolChange: (tool: CanvasTool) => void;
   onSelect: (id: string | null) => void;
   onAddObject: (obj: CanvasObject) => void;
@@ -27,6 +42,7 @@ interface ChartCanvasProps {
   onDeleteSelected: () => void;
   onRemoveObject: (id: string) => void;
   onImageLoad: (dataUrl: string) => void;
+  onNormalizeObjects?: (objects: CanvasObject[]) => void;
   compact?: boolean;
 }
 
@@ -43,14 +59,13 @@ function wedgeColor(t: "wedge-red" | "wedge-green") {
   return t === "wedge-red" ? WEDGE_COLORS.red : WEDGE_COLORS.green;
 }
 
-const FREEHAND_THRESHOLD = 10;
-const FREEHAND_STEP = 6;
-
 export function ChartCanvas({
+  slot,
   chartImage,
-  objects,
+  objects: allObjects,
   selectedId,
   activeTool,
+  allowUpload = true,
   onToolChange,
   onSelect,
   onAddObject,
@@ -58,21 +73,25 @@ export function ChartCanvas({
   onDeleteSelected,
   onRemoveObject,
   onImageLoad,
+  onNormalizeObjects,
   compact = false,
 }: ChartCanvasProps) {
+  const objects = objectsForSlot(allObjects, slot);
+  const slotLabel =
+    slot === "main"
+      ? "主图"
+      : (CONTEXT_SLOTS.find((s) => s.id === slot)?.label ?? slot);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const layerRef = useRef<HTMLDivElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [imageLayout, setImageLayout] = useState<ImageLayout | null>(null);
 
   const [mmDraftP1, setMmDraftP1] = useState<Point | null>(null);
   const [mmCursor, setMmCursor] = useState<Point | null>(null);
 
-  const [wedgeDraft, setWedgeDraft] = useState<Point[]>([]);
+  const [wedgeP1, setWedgeP1] = useState<Point | null>(null);
   const [wedgeCursor, setWedgeCursor] = useState<Point | null>(null);
-  const wedgeDrawRef = useRef<{
-    freehand: boolean;
-    points: Point[];
-    start: Point;
-  } | null>(null);
 
   const [canvasBounds, setCanvasBounds] = useState<CanvasBounds>({
     width: 800,
@@ -80,27 +99,95 @@ export function ChartCanvas({
     margin: 40,
   });
 
-  useEffect(() => {
+  const syncImageLayout = useCallback(() => {
     const el = canvasRef.current;
     if (!el) return;
-    const sync = () => {
+    const layout = getDisplayedImageRect(el, imgRef.current);
+    setImageLayout(layout);
+    if (layout) {
+      setCanvasBounds({
+        width: layout.w,
+        height: layout.h,
+        margin: Math.max(12, layout.w * 0.04),
+      });
+    } else {
       setCanvasBounds({
         width: el.clientWidth,
         height: el.clientHeight,
         margin: 40,
       });
-    };
-    sync();
-    const ro = new ResizeObserver(sync);
+    }
+  }, []);
+
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    syncImageLayout();
+    const img = imgRef.current;
+    if (img?.complete && img.naturalWidth) syncImageLayout();
+    const ro = new ResizeObserver(syncImageLayout);
     ro.observe(el);
+    if (img) {
+      img.addEventListener("load", syncImageLayout);
+      return () => {
+        ro.disconnect();
+        img.removeEventListener("load", syncImageLayout);
+      };
+    }
     return () => ro.disconnect();
-  }, [chartImage]);
+  }, [chartImage, syncImageLayout]);
+
+  useEffect(() => {
+    if (!imageLayout || !onNormalizeObjects) return;
+    const needsPixel = objects.some(isLikelyPixelCoords);
+    const needsNoteColor = objects.some(
+      (o) => o.kind === "note" && o.props.color !== "#ffffff",
+    );
+    if (!needsPixel && !needsNoteColor) return;
+    let nextSlot = objects;
+    if (needsPixel) nextSlot = migrateObjectsToNorm(objects, imageLayout);
+    else if (needsNoteColor) nextSlot = objects.map(normalizeNoteColor);
+    onNormalizeObjects(mergeSlotObjects(allObjects, slot, nextSlot));
+  }, [imageLayout, allObjects, objects, slot, onNormalizeObjects]);
 
   const getCanvasBounds = useCallback((): CanvasBounds => {
+    if (imageLayout) {
+      return {
+        width: imageLayout.w,
+        height: imageLayout.h,
+        margin: Math.max(12, imageLayout.w * 0.04),
+      };
+    }
     const el = canvasRef.current;
     if (!el) return canvasBounds;
     return { width: el.clientWidth, height: el.clientHeight, margin: 40 };
-  }, [canvasBounds]);
+  }, [canvasBounds, imageLayout]);
+
+  const layout = imageLayout;
+
+  const toLayer = useCallback(
+    (obj: CanvasObject) => (layout ? objectToLayerDisplay(obj, layout) : obj),
+    [layout],
+  );
+
+  const updateNorm = useCallback(
+    (id: string, patch: Partial<CanvasObject>) => {
+      if (!layout) {
+        onUpdateObject(id, patch);
+        return;
+      }
+      onUpdateObject(id, patchLayerToNorm(patch, layout));
+    },
+    [layout, onUpdateObject],
+  );
+
+  const addNorm = useCallback(
+    (obj: CanvasObject) => {
+      const tagged = { ...obj, slot };
+      onAddObject(layout ? objectToNorm(tagged, layout) : tagged);
+    },
+    [layout, onAddObject, slot],
+  );
 
   const getCanvasPoint = useCallback((clientX: number, clientY: number): Point | null => {
     const canvas = canvasRef.current;
@@ -111,19 +198,19 @@ export function ChartCanvas({
   const clearToolDrafts = useCallback(() => {
     setMmDraftP1(null);
     setMmCursor(null);
-    setWedgeDraft([]);
+    setWedgeP1(null);
     setWedgeCursor(null);
-    wedgeDrawRef.current = null;
   }, []);
 
   const finishMm = useCallback(
     (p1: Point, p2: Point) => {
       if (Math.hypot(p2.x - p1.x, p2.y - p1.y) < 8) return;
-      onAddObject(createMmObject(p1, p2, "auto", "all"));
+      const obj = createMmObject(p1, p2, "auto", "all");
+      addNorm(obj);
       clearToolDrafts();
       onToolChange(null);
     },
-    [onAddObject, onToolChange, clearToolDrafts],
+    [addNorm, onToolChange, clearToolDrafts],
   );
 
   const finishLegEq = useCallback(
@@ -131,25 +218,28 @@ export function ChartCanvas({
       if (Math.hypot(p2.x - p1.x, p2.y - p1.y) < 8) return;
       const legEq = createLegEqObject(p1, p2, getCanvasBounds());
       if (legEq) {
-        onAddObject(legEq);
+        addNorm(legEq);
         onSelect(legEq.id);
       }
       clearToolDrafts();
       onToolChange(null);
     },
-    [onAddObject, onSelect, onToolChange, clearToolDrafts, getCanvasBounds],
+    [addNorm, onSelect, onToolChange, clearToolDrafts, getCanvasBounds],
   );
 
   const finishWedge = useCallback(
-    (pts: Point[]) => {
-      if (!isWedgeTool(activeTool) || pts.length < 2) return;
-      const obj = createWedgeObject(pts, wedgeColor(activeTool), activeTool);
-      if (obj) onAddObject(obj);
-      setWedgeDraft([]);
-      setWedgeCursor(null);
-      wedgeDrawRef.current = null;
+    (p1: Point, p2: Point) => {
+      if (!isWedgeTool(activeTool)) return;
+      if (Math.hypot(p2.x - p1.x, p2.y - p1.y) < 8) return;
+      const obj = createWedgeObject([p1, p2], wedgeColor(activeTool), activeTool);
+      if (obj) {
+        addNorm(obj);
+        onSelect(obj.id);
+      }
+      clearToolDrafts();
+      onToolChange(null);
     },
-    [activeTool, onAddObject],
+    [activeTool, addNorm, onSelect, onToolChange, clearToolDrafts],
   );
 
   const dropObject = useCallback(
@@ -160,7 +250,7 @@ export function ChartCanvas({
       const rect = canvas.getBoundingClientRect();
       const x = clientX - rect.left - template.defaultWidth / 2;
       const y = clientY - rect.top - template.defaultHeight / 2;
-      onAddObject({
+      addNorm({
         id: newId(),
         templateId: template.id,
         kind: template.kind,
@@ -172,7 +262,7 @@ export function ChartCanvas({
         props: { ...template.props },
       });
     },
-    [onAddObject],
+    [addNorm],
   );
 
   const handleDrop = useCallback(
@@ -218,8 +308,12 @@ export function ChartCanvas({
     if (isWedgeTool(activeTool)) {
       e.preventDefault();
       e.stopPropagation();
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-      wedgeDrawRef.current = { freehand: false, points: [], start: pt };
+      if (!wedgeP1) {
+        setWedgeP1(pt);
+        setWedgeCursor(pt);
+      } else {
+        finishWedge(wedgeP1, pt);
+      }
     }
   };
 
@@ -232,44 +326,14 @@ export function ChartCanvas({
       return;
     }
 
-    const draw = wedgeDrawRef.current;
-    if (!draw || !isWedgeTool(activeTool)) return;
-
-    const dist = Math.hypot(pt.x - draw.start.x, pt.y - draw.start.y);
-    if (!draw.freehand && dist > FREEHAND_THRESHOLD) {
-      draw.freehand = true;
-      draw.points = [draw.start];
-    }
-
-    if (draw.freehand) {
-      const last = draw.points[draw.points.length - 1];
-      if (!last || Math.hypot(pt.x - last.x, pt.y - last.y) >= FREEHAND_STEP) {
-        draw.points.push(pt);
-        setWedgeDraft([...draw.points]);
-      }
-    } else {
+    if (isWedgeTool(activeTool) && wedgeP1) {
       setWedgeCursor(pt);
     }
   };
 
-  const handleCanvasPointerUp = () => {
-    const draw = wedgeDrawRef.current;
-    if (!draw || !isWedgeTool(activeTool)) return;
+  const handleCanvasPointerUp = () => {};
 
-    if (draw.freehand) {
-      finishWedge(draw.points);
-    } else {
-      setWedgeDraft((prev) => [...prev, draw.start]);
-    }
-    wedgeDrawRef.current = null;
-    setWedgeCursor(null);
-  };
-
-  const handleCanvasDoubleClick = () => {
-    if (isWedgeTool(activeTool) && wedgeDraft.length >= 2) {
-      finishWedge(wedgeDraft);
-    }
-  };
+  const handleCanvasDoubleClick = () => {};
 
   const toolHint = (() => {
     if (activeTool === "leg-eq") {
@@ -282,9 +346,9 @@ export function ChartCanvas({
     }
     if (isWedgeTool(activeTool)) {
       const color = activeTool === "wedge-red" ? "红" : "绿";
-      return wedgeDraft.length > 0
-        ? `${color}楔形：继续点击 / 拖拽 · Enter 或双击完成`
-        : `${color}楔形：点击画点，或按住拖拽自由画线`;
+      return wedgeP1
+        ? `${color}楔形：点击第 2 个点（自动完成，可拖端点拉长/缩短）`
+        : `${color}楔形：点击第 1 个点`;
     }
     return null;
   })();
@@ -296,15 +360,10 @@ export function ChartCanvas({
         if (activeTool) onToolChange(null);
         return;
       }
-      if (e.key === "Enter" && isWedgeTool(activeTool) && wedgeDraft.length >= 2) {
-        const tag = (e.target as HTMLElement).tagName;
-        if (tag === "INPUT" || tag === "TEXTAREA") return;
-        finishWedge(wedgeDraft);
-      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [activeTool, wedgeDraft, clearToolDrafts, finishWedge, onToolChange]);
+  }, [activeTool, clearToolDrafts, onToolChange]);
 
   const placedObjects = objects.filter(
     (o) => o.kind !== "mm" && o.kind !== "wedge-line" && o.kind !== "leg-eq",
@@ -315,22 +374,23 @@ export function ChartCanvas({
 
   const activeWedgeColor = isWedgeTool(activeTool) ? wedgeColor(activeTool) : null;
   const selectedObj = objects.find((o) => o.id === selectedId);
+  const effectiveSelectedId =
+    selectedObj && objectSlot(selectedObj) === slot ? selectedId : null;
   const canCopyLeg2 =
     selectedObj?.kind === "leg-eq" && !selectedObj.props.hasLeg2;
 
   return (
     <div className={`canvas-area ${compact ? "canvas-area-compact" : ""}`}>
       <div className="canvas-toolbar">
-        <button type="button" onClick={() => fileRef.current?.click()}>
-          上传截图
-        </button>
-        <span className="toolbar-hint">Ctrl+V 粘贴到当前选中格 · 拖放标注到主图</span>
-        {toolHint && <span className="toolbar-hint toolbar-mm-hint">{toolHint}</span>}
-        {isWedgeTool(activeTool) && wedgeDraft.length >= 2 && (
-          <button type="button" onClick={() => finishWedge(wedgeDraft)}>
-            完成楔形
+        {allowUpload && (
+          <button type="button" onClick={() => fileRef.current?.click()}>
+            {slot === "main" ? "上传截图" : "替换截图"}
           </button>
         )}
+        <span className="toolbar-hint">
+          Ctrl+V 粘贴到「{slotLabel}」· 拖放标注到此图
+        </span>
+        {toolHint && <span className="toolbar-hint toolbar-mm-hint">{toolHint}</span>}
         {activeTool && (
           <button type="button" className="btn-ghost" onClick={() => {
             clearToolDrafts();
@@ -357,7 +417,7 @@ export function ChartCanvas({
             复制 → Leg 2
           </button>
         )}
-        {selectedId && (
+        {effectiveSelectedId && (
           <button type="button" className="btn-danger" onClick={onDeleteSelected}>
             删除选中 (Del)
           </button>
@@ -421,76 +481,105 @@ export function ChartCanvas({
             <p className="sub">支持上传、粘贴、拖放</p>
           </div>
         ) : (
-          <img src={chartImage} alt="Chart" className="chart-image" draggable={false} />
+          <img
+            ref={imgRef}
+            src={chartImage}
+            alt="Chart"
+            className="chart-image"
+            draggable={false}
+            onLoad={syncImageLayout}
+          />
         )}
 
-        {activeTool === "mm-auto" && mmDraftP1 ? (
-          <MmPreview p1={mmDraftP1} p2={null} cursor={mmCursor} />
-        ) : null}
-
-        {activeTool === "leg-eq" && mmDraftP1 ? (
-          <LegEqPreview p1={mmDraftP1} p2={null} cursor={mmCursor} />
-        ) : null}
-
-        {isWedgeTool(activeTool) && (wedgeDraft.length > 0 || wedgeCursor) && activeWedgeColor ? (
-          <WedgePreview
-            points={wedgeDraft}
-            cursor={wedgeCursor}
-            color={activeWedgeColor}
-          />
-        ) : null}
-
-        {placedObjects.map((obj) => (
-          <PlacedObject
-            key={obj.id}
-            obj={obj}
-            selected={obj.id === selectedId}
-            canvasRef={canvasRef}
-            onSelect={onSelect}
-            onMove={(id, x, y) => onUpdateObject(id, { x, y })}
-            onResize={(id, width, height) => onUpdateObject(id, { width, height })}
-            onEditText={(id, text) => {
-              const target = objects.find((o) => o.id === id);
-              if (!target) return;
-              onUpdateObject(id, { props: { ...target.props, text } });
+        {layout && (
+          <div
+            ref={layerRef}
+            className="chart-annotation-layer"
+            style={{
+              left: layout.x,
+              top: layout.y,
+              width: layout.w,
+              height: layout.h,
             }}
-            onDelete={onRemoveObject}
-          />
-        ))}
+          >
+            {activeTool === "mm-auto" && mmDraftP1 ? (
+              <MmPreview
+                p1={canvasToLayer(mmDraftP1, layout)}
+                p2={null}
+                cursor={mmCursor ? canvasToLayer(mmCursor, layout) : null}
+              />
+            ) : null}
 
-        {mmObjects.map((obj) => (
-          <MmObject
-            key={obj.id}
-            obj={obj}
-            selected={obj.id === selectedId}
-            canvasRef={canvasRef}
-            onSelect={onSelect}
-            onUpdate={onUpdateObject}
-          />
-        ))}
+            {activeTool === "leg-eq" && mmDraftP1 ? (
+              <LegEqPreview
+                p1={canvasToLayer(mmDraftP1, layout)}
+                p2={null}
+                cursor={mmCursor ? canvasToLayer(mmCursor, layout) : null}
+              />
+            ) : null}
 
-        {legEqObjects.map((obj) => (
-          <LegEqObject
-            key={obj.id}
-            obj={obj}
-            selected={obj.id === selectedId}
-            canvasRef={canvasRef}
-            canvasBounds={getCanvasBounds()}
-            onSelect={onSelect}
-            onUpdate={onUpdateObject}
-          />
-        ))}
+            {isWedgeTool(activeTool) && wedgeP1 && activeWedgeColor ? (
+              <WedgePreview
+                points={[canvasToLayer(wedgeP1, layout)]}
+                cursor={wedgeCursor ? canvasToLayer(wedgeCursor, layout) : null}
+                color={activeWedgeColor}
+              />
+            ) : null}
 
-        {wedgeObjects.map((obj) => (
-          <WedgeObject
-            key={obj.id}
-            obj={obj}
-            selected={obj.id === selectedId}
-            canvasRef={canvasRef}
-            onSelect={onSelect}
-            onUpdate={onUpdateObject}
-          />
-        ))}
+            {placedObjects.map((obj) => (
+              <PlacedObject
+                key={obj.id}
+                obj={toLayer(obj)}
+                selected={obj.id === effectiveSelectedId}
+                coordRef={layerRef}
+                onSelect={onSelect}
+                onMove={(id, x, y) => updateNorm(id, { x, y })}
+                onResize={(id, width, height) => updateNorm(id, { width, height })}
+                onEditText={(id, text) => {
+                  const target = objects.find((o) => o.id === id);
+                  if (!target) return;
+                  onUpdateObject(id, { props: { ...target.props, text } });
+                }}
+                onDelete={onRemoveObject}
+              />
+            ))}
+
+            {mmObjects.map((obj) => (
+              <MmObject
+                key={obj.id}
+                obj={toLayer(obj)}
+                selected={obj.id === effectiveSelectedId}
+                coordRef={layerRef}
+                onSelect={onSelect}
+                onUpdate={updateNorm}
+              />
+            ))}
+
+            {legEqObjects.map((obj) => (
+              <LegEqObject
+                key={obj.id}
+                obj={toLayer(obj)}
+                selected={obj.id === effectiveSelectedId}
+                coordRef={layerRef}
+                canvasBounds={getCanvasBounds()}
+                onSelect={onSelect}
+                onUpdate={updateNorm}
+              />
+            ))}
+
+            {wedgeObjects.map((obj) => (
+              <WedgeObject
+                key={obj.id}
+                obj={toLayer(obj)}
+                selected={obj.id === effectiveSelectedId}
+                coordRef={layerRef}
+                onSelect={onSelect}
+                onUpdate={updateNorm}
+                onDelete={onRemoveObject}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

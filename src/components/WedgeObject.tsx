@@ -9,24 +9,32 @@ import {
   updateWedgePoints,
 } from "../wedge/create";
 import { ObjectNoteLabel } from "./ObjectNoteLabel";
+import { ObjectToolbar } from "./ObjectToolbar";
 
 interface WedgeObjectProps {
   obj: CanvasObject;
   selected: boolean;
-  canvasRef: RefObject<HTMLElement | null>;
+  coordRef: RefObject<HTMLElement | null>;
   onSelect: (id: string) => void;
   onUpdate: (id: string, patch: Partial<CanvasObject>) => void;
+  onDelete: (id: string) => void;
 }
 
-export function WedgeObject({ obj, selected, canvasRef, onSelect, onUpdate }: WedgeObjectProps) {
+export function WedgeObject({
+  obj,
+  selected,
+  coordRef,
+  onSelect,
+  onUpdate,
+  onDelete,
+}: WedgeObjectProps) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const { startDrag } = useCanvasDrag(canvasRef, rootRef);
-  const { startLiveDrag } = useCanvasLiveDrag(canvasRef);
+  const { startDrag } = useCanvasDrag(coordRef, rootRef);
+  const { startLiveDrag } = useCanvasLiveDrag(coordRef);
 
   const points = parseWedgePoints(obj);
   const color = String(obj.props.color ?? "#dc2626");
   const local = toLocalPoints(points, obj);
-  const polyline = local.map((p) => `${p.x},${p.y}`).join(" ");
 
   const handleMoveWhole = useCallback(
     (e: React.PointerEvent) => {
@@ -64,19 +72,36 @@ export function WedgeObject({ obj, selected, canvasRef, onSelect, onUpdate }: We
       className={`wedge-object ${selected ? "selected" : ""}`}
       style={{ left: obj.x, top: obj.y, width: obj.width, height: obj.height }}
       onPointerDown={(e) => {
-        if ((e.target as HTMLElement).closest(".wedge-vertex")) return;
+        if (
+          (e.target as HTMLElement).closest(".wedge-vertex, .obj-toolbar, .obj-toolbar-delete")
+        )
+          return;
         handleMoveWhole(e);
       }}
     >
+      {selected && <ObjectToolbar onDelete={() => onDelete(obj.id)} />}
       <svg className="wedge-svg" width={obj.width} height={obj.height}>
-        <polyline
-          points={polyline}
-          fill="none"
+        {selected && local.length >= 2 && (
+          <line
+            x1={local[0].x}
+            y1={local[0].y}
+            x2={local[1].x}
+            y2={local[1].y}
+            stroke="transparent"
+            strokeWidth={14}
+            style={{ pointerEvents: "stroke", cursor: "grab" }}
+          />
+        )}
+        <line
+          x1={local[0]?.x ?? 0}
+          y1={local[0]?.y ?? 0}
+          x2={local[1]?.x ?? 0}
+          y2={local[1]?.y ?? 0}
           stroke={color}
           strokeWidth={2.5}
           strokeDasharray="10 6"
           strokeLinecap="round"
-          strokeLinejoin="round"
+          style={{ pointerEvents: selected ? "none" : "auto" }}
         />
       </svg>
 
@@ -93,6 +118,7 @@ export function WedgeObject({ obj, selected, canvasRef, onSelect, onUpdate }: We
               borderColor: color,
               background: color,
             }}
+            title={i === 0 ? "起点 · 拖动拉长/缩短" : "终点 · 拖动拉长/缩短"}
             onPointerDown={(e) => handleVertexDown(e, i)}
           />
         ))}

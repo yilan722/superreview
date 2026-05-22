@@ -1,7 +1,12 @@
 import { useCallback, useRef } from "react";
 import type { RefObject } from "react";
 import type { CanvasObject } from "../types";
-import { useCanvasDrag, useCanvasLiveDrag } from "../canvas/pointerDrag";
+import {
+  canvasDelta,
+  canvasPointer,
+  useCanvasDrag,
+  useCanvasLiveDrag,
+} from "../canvas/pointerDrag";
 import { ArrowSvg } from "./ArrowSvg";
 import { ObjectNoteLabel } from "./ObjectNoteLabel";
 import { ObjectToolbar } from "./ObjectToolbar";
@@ -9,7 +14,7 @@ import { ObjectToolbar } from "./ObjectToolbar";
 interface PlacedObjectProps {
   obj: CanvasObject;
   selected: boolean;
-  canvasRef: RefObject<HTMLElement | null>;
+  coordRef: RefObject<HTMLElement | null>;
   onSelect: (id: string) => void;
   onMove: (id: string, x: number, y: number) => void;
   onResize: (id: string, width: number, height: number) => void;
@@ -20,7 +25,7 @@ interface PlacedObjectProps {
 export function PlacedObject({
   obj,
   selected,
-  canvasRef,
+  coordRef,
   onSelect,
   onMove,
   onResize,
@@ -28,8 +33,8 @@ export function PlacedObject({
   onDelete,
 }: PlacedObjectProps) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const { startDrag } = useCanvasDrag(canvasRef, rootRef);
-  const { startLiveDrag } = useCanvasLiveDrag(canvasRef);
+  const { startDrag } = useCanvasDrag(coordRef, rootRef);
+  const { startLiveDrag } = useCanvasLiveDrag(coordRef);
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -66,6 +71,50 @@ export function PlacedObject({
       }, () => {});
     },
     [obj.id, obj.width, obj.height, onSelect, onResize, startLiveDrag],
+  );
+
+  const handleNoteTextPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLTextAreaElement>) => {
+      e.stopPropagation();
+      onSelect(obj.id);
+      const root = coordRef.current;
+      if (!root) return;
+
+      const origX = obj.x;
+      const origY = obj.y;
+      const startCanvas = canvasPointer(root, e.clientX, e.clientY);
+      const pointerId = e.pointerId;
+      const textarea = e.currentTarget;
+      let dragging = false;
+
+      const onWinMove = (ev: PointerEvent) => {
+        if (ev.pointerId !== pointerId) return;
+        const d = canvasDelta({ pointerId, canvas: root, startCanvas }, ev.clientX, ev.clientY);
+        if (!dragging && Math.hypot(d.x, d.y) > 6) {
+          dragging = true;
+          textarea.blur();
+        }
+        if (dragging && rootRef.current) {
+          rootRef.current.style.transform = `translate(${d.x}px, ${d.y}px)`;
+        }
+      };
+
+      const onWinUp = (ev: PointerEvent) => {
+        window.removeEventListener("pointermove", onWinMove);
+        window.removeEventListener("pointerup", onWinUp);
+        window.removeEventListener("pointercancel", onWinUp);
+        if (dragging && rootRef.current) {
+          rootRef.current.style.transform = "";
+          const d = canvasDelta({ pointerId, canvas: root, startCanvas }, ev.clientX, ev.clientY);
+          onMove(obj.id, origX + d.x, origY + d.y);
+        }
+      };
+
+      window.addEventListener("pointermove", onWinMove);
+      window.addEventListener("pointerup", onWinUp);
+      window.addEventListener("pointercancel", onWinUp);
+    },
+    [obj.id, obj.x, obj.y, coordRef, onSelect, onMove],
   );
 
   const renderContent = () => {
@@ -137,14 +186,22 @@ export function PlacedObject({
         );
       case "note":
         return (
-          <textarea
-            className="obj-note"
-            value={String(p.text ?? "")}
-            onChange={(ev) => onEditText(obj.id, ev.target.value)}
-            onFocus={() => onSelect(obj.id)}
-            onPointerDown={(ev) => ev.stopPropagation()}
-            style={{ color: String(p.color) }}
-          />
+          <div className="obj-note-shell">
+            <div
+              className="obj-note-drag-bar"
+              title="拖动移动"
+              onPointerDown={handlePointerDown}
+            >
+              ⋮⋮ 拖动
+            </div>
+            <textarea
+              className="obj-note"
+              value={String(p.text ?? "")}
+              onChange={(ev) => onEditText(obj.id, ev.target.value)}
+              onFocus={() => onSelect(obj.id)}
+              onPointerDown={handleNoteTextPointerDown}
+            />
+          </div>
         );
       default:
         return null;
@@ -154,7 +211,7 @@ export function PlacedObject({
   return (
     <div
       ref={rootRef}
-      className={`placed-object ${selected ? "selected" : ""}`}
+      className={`placed-object ${obj.kind === "note" ? "placed-object--note" : ""} ${selected ? "selected" : ""}`}
       style={{
         left: obj.x,
         top: obj.y,
@@ -162,7 +219,7 @@ export function PlacedObject({
         height: obj.height,
         transform: obj.rotation ? `rotate(${obj.rotation}deg)` : undefined,
       }}
-      onPointerDown={handlePointerDown}
+      onPointerDown={obj.kind === "note" ? undefined : handlePointerDown}
     >
       {selected && <ObjectToolbar onDelete={() => onDelete(obj.id)} />}
       {renderContent()}

@@ -1,6 +1,5 @@
-import { useRef, useState } from "react";
+import { useRef } from "react";
 import type { ContextSlot } from "../types";
-import { ImagePreviewModal } from "./ImagePreviewModal";
 
 interface ContextImagePaneProps {
   slot: ContextSlot;
@@ -9,6 +8,7 @@ interface ContextImagePaneProps {
   active: boolean;
   onActivate: () => void;
   onImageChange: (dataUrl: string | null) => void;
+  onExpand: () => void;
 }
 
 export function ContextImagePane({
@@ -18,9 +18,9 @@ export function ContextImagePane({
   active,
   onActivate,
   onImageChange,
+  onExpand,
 }: ContextImagePaneProps) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const [expanded, setExpanded] = useState(false);
 
   const loadFile = (file: File | undefined) => {
     if (!file?.type.startsWith("image/")) return;
@@ -65,7 +65,7 @@ export function ContextImagePane({
                 className="context-pane-btn context-pane-btn-zoom"
                 onClick={(e) => {
                   e.stopPropagation();
-                  setExpanded(true);
+                  onExpand();
                 }}
               >
                 放大
@@ -104,15 +104,6 @@ export function ContextImagePane({
           e.target.value = "";
         }}
       />
-
-      {image && (
-        <ImagePreviewModal
-          open={expanded}
-          title={label}
-          image={image}
-          onClose={() => setExpanded(false)}
-        />
-      )}
     </div>
   );
 }

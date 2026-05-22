@@ -232,7 +232,7 @@ export const EXTRA_TOOLS: PaletteTemplate[] = [
     label: "复盘笔记",
     defaultWidth: 200,
     defaultHeight: 80,
-    props: { text: "复盘：", color: "#1e293b" },
+    props: { text: "复盘：", color: "#ffffff" },
   },
 ];
 

@@ -42,13 +42,20 @@ function emptyState(): ReviewState {
   };
 }
 
-function hasContent(state: ReviewState) {
-  return !!(
+function hasSaveableContent(state: ReviewState) {
+  if (
     hasAnyChartImage(state) ||
-    state.objects.length ||
-    state.reviewNotes.trim() ||
+    state.objects.length > 0 ||
     state.sessionTitle.trim()
-  );
+  ) {
+    return true;
+  }
+  const notes = state.reviewNotes.trim();
+  return !!notes && notes !== DEFAULT_REVIEW_NOTES.trim();
+}
+
+function hasContent(state: ReviewState) {
+  return hasSaveableContent(state);
 }
 
 export default function App() {
@@ -66,6 +73,8 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<CanvasTool>(null);
   const [hubOpen, setHubOpen] = useState(false);
+  const [hubRefresh, setHubRefresh] = useState(0);
+  const [hubSaving, setHubSaving] = useState(false);
   const [saveToast, setSaveToast] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(loadPanelOpen);
   const [pasteTarget, setPasteTarget] = useState<ImageSlot>("main");
@@ -181,15 +190,25 @@ export default function App() {
     });
   };
 
-  const saveToHub = () => {
+  const saveToHub = async () => {
+    if (hubSaving) return;
     const state = currentState();
-    if (!hasContent(state)) {
-      window.alert("当前没有可保存的内容。请先上传截图或填写复盘笔记。");
+    if (!hasSaveableContent(state)) {
+      window.alert("当前没有可保存的内容。请先上传 K 线截图、添加标注，或填写复盘笔记。");
       return;
     }
-    const entry = upsertHubEntry(state, hubId);
+    setHubSaving(true);
+    const result = await upsertHubEntry(state, hubId);
+    setHubSaving(false);
+    if (!result.ok) {
+      window.alert(`保存失败：${result.error}`);
+      return;
+    }
+    const { entry } = result;
     setHubId(entry.id);
     setSessionTitle(entry.title);
+    setHubRefresh((n) => n + 1);
+    setHubOpen(true);
     setSaveToast(`已保存到 Review Hub：${entry.title}`);
   };
 
@@ -199,7 +218,7 @@ export default function App() {
       const saveFirst = window.confirm(
         "是否先将当前复盘保存到 Review Hub？\n\n确定 = 保存并新建\n取消 = 不保存，直接新建",
       );
-      if (saveFirst) saveToHub();
+      if (saveFirst) void saveToHub();
       else if (!window.confirm("不保存并新建空白复盘？")) return;
     }
     applyState(emptyState(), null);
@@ -249,8 +268,13 @@ export default function App() {
           <button type="button" className="btn-ghost" onClick={() => setHubOpen(true)}>
             Review Hub
           </button>
-          <button type="button" className="btn-primary" onClick={saveToHub}>
-            保存到 Hub
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => void saveToHub()}
+            disabled={hubSaving}
+          >
+            {hubSaving ? "保存中…" : "保存到 Hub"}
           </button>
           <button type="button" onClick={exportPng} disabled={!chartImage}>
             导出主图 PNG
@@ -266,6 +290,7 @@ export default function App() {
       <ReviewHubModal
         open={hubOpen}
         activeId={hubId}
+        refreshKey={hubRefresh}
         onClose={() => setHubOpen(false)}
         onOpen={openFromHub}
       />
@@ -283,6 +308,7 @@ export default function App() {
         </CollapsibleSidebar>
 
         <ChartWorkspace
+          sidebarOpen={panelOpen}
           chartImage={chartImage}
           contextImages={contextImages}
           objects={objects}
@@ -305,6 +331,7 @@ export default function App() {
             setObjects((prev) => prev.filter((o) => o.id !== selectedId));
             setSelectedId(null);
           }}
+          onNormalizeObjects={(migrated) => setObjects(migrated)}
         />
 
         <ObjectPalette

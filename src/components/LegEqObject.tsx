@@ -18,7 +18,7 @@ import { ObjectNoteLabel } from "./ObjectNoteLabel";
 interface LegEqObjectProps {
   obj: CanvasObject;
   selected: boolean;
-  canvasRef: RefObject<HTMLElement | null>;
+  coordRef: RefObject<HTMLElement | null>;
   canvasBounds: CanvasBounds;
   onSelect: (id: string) => void;
   onUpdate: (id: string, patch: Partial<CanvasObject>) => void;
@@ -27,14 +27,14 @@ interface LegEqObjectProps {
 export function LegEqObject({
   obj,
   selected,
-  canvasRef,
+  coordRef,
   canvasBounds,
   onSelect,
   onUpdate,
 }: LegEqObjectProps) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const { startDrag } = useCanvasDrag(canvasRef, rootRef);
-  const { startLiveDrag } = useCanvasLiveDrag(canvasRef);
+  const { startDrag } = useCanvasDrag(coordRef, rootRef);
+  const { startLiveDrag } = useCanvasLiveDrag(coordRef);
 
   const { p1, p2, l2a, l2b, hasLeg2 } = getLegEqPoints(obj);
   const layout = computeLegEqLayout(p1, p2, hasLeg2, l2a, l2b, canvasBounds);

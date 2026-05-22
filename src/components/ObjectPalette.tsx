@@ -133,7 +133,7 @@ export function ObjectPalette({ activeTool, onToolChange, onDragStart }: ObjectP
             </button>
           </div>
           <p className="palette-mm-note">
-            点击画折线 · 按住拖拽自由画 · Enter / 双击 /「完成楔形」结束
+            点击 2 个点成线 · 自动完成 · 拖端点可拉长/缩短
           </p>
         </section>
 

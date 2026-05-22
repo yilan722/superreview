@@ -60,6 +60,8 @@ export interface CanvasObject {
   id: string;
   templateId: string;
   kind: ObjectKind;
+  /** Which chart image this annotation belongs to (defaults to main). */
+  slot?: ImageSlot;
   x: number;
   y: number;
   width: number;

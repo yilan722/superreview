@@ -9,15 +9,15 @@ import { ObjectNoteLabel } from "./ObjectNoteLabel";
 interface MmObjectProps {
   obj: CanvasObject;
   selected: boolean;
-  canvasRef: RefObject<HTMLElement | null>;
+  coordRef: RefObject<HTMLElement | null>;
   onSelect: (id: string) => void;
   onUpdate: (id: string, patch: Partial<CanvasObject>) => void;
 }
 
-export function MmObject({ obj, selected, canvasRef, onSelect, onUpdate }: MmObjectProps) {
+export function MmObject({ obj, selected, coordRef, onSelect, onUpdate }: MmObjectProps) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const { startDrag } = useCanvasDrag(canvasRef, rootRef);
-  const { startLiveDrag } = useCanvasLiveDrag(canvasRef);
+  const { startDrag } = useCanvasDrag(coordRef, rootRef);
+  const { startLiveDrag } = useCanvasLiveDrag(coordRef);
 
   const { p1, p2 } = getMmPoints(obj);
   const mode = (obj.props.mode as "auto" | "manual") ?? "manual";

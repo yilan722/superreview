@@ -9,20 +9,54 @@ import {
 interface ReviewHubModalProps {
   open: boolean;
   activeId: string | null;
+  refreshKey?: number;
   onClose: () => void;
   onOpen: (entry: HubEntry) => void;
 }
 
-export function ReviewHubModal({ open, activeId, onClose, onOpen }: ReviewHubModalProps) {
+export function ReviewHubModal({
+  open,
+  activeId,
+  refreshKey = 0,
+  onClose,
+  onOpen,
+}: ReviewHubModalProps) {
   const [entries, setEntries] = useState<HubEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (open) setEntries(loadHubEntries());
-  }, [open]);
+    if (!open) return;
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+    loadHubEntries()
+      .then((list) => {
+        if (!cancelled) setEntries(list);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setEntries([]);
+          setLoadError(err instanceof Error ? err.message : "加载失败");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, refreshKey]);
 
   if (!open) return null;
 
-  const refresh = () => setEntries(loadHubEntries());
+  const refresh = () => {
+    setLoading(true);
+    loadHubEntries()
+      .then(setEntries)
+      .catch((err) => setLoadError(err instanceof Error ? err.message : "加载失败"))
+      .finally(() => setLoading(false));
+  };
 
   return (
     <div className="hub-overlay" onClick={onClose} role="presentation">
@@ -43,9 +77,15 @@ export function ReviewHubModal({ open, activeId, onClose, onOpen }: ReviewHubMod
         </header>
 
         <div className="hub-list">
-          {entries.length === 0 ? (
+          {loading && <p className="hub-empty">加载中…</p>}
+          {loadError && !loading && (
+            <p className="hub-empty hub-empty--error">无法加载：{loadError}</p>
+          )}
+          {!loading && !loadError && entries.length === 0 && (
             <p className="hub-empty">还没有保存的复盘。完成分析后点顶部「保存到 Hub」。</p>
-          ) : (
+          )}
+          {!loading &&
+            !loadError &&
             entries.map((entry) => (
               <article
                 key={entry.id}
@@ -80,16 +120,14 @@ export function ReviewHubModal({ open, activeId, onClose, onOpen }: ReviewHubMod
                     className="btn-danger-text"
                     onClick={() => {
                       if (!window.confirm(`删除「${entry.title}」？`)) return;
-                      deleteHubEntry(entry.id);
-                      refresh();
+                      void deleteHubEntry(entry.id).then(refresh);
                     }}
                   >
                     删除
                   </button>
                 </div>
               </article>
-            ))
-          )}
+            ))}
         </div>
       </div>
     </div>
