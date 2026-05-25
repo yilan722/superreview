@@ -4,5 +4,11 @@ dist/
 .DS_Store
 .env
 .env.*
+!.env.example
 *.log
 tsconfig.tsbuildinfo
+public/encyclopedia-data/thumbs/
+public/encyclopedia-data/previews/
+public/encyclopedia-data/index.json
+public/encyclopedia-data/knowledge.json
+.encyclopedia-samples/

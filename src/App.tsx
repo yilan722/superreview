@@ -7,6 +7,7 @@ import {
   savePanelOpen,
 } from "./components/CollapsibleSidebar";
 import { ObjectPalette } from "./components/ObjectPalette";
+import { LiveChartModal } from "./components/LiveChartModal";
 import { ReviewHubModal } from "./components/ReviewHubModal";
 import { ReviewPanel } from "./components/ReviewPanel";
 import {
@@ -73,6 +74,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeTool, setActiveTool] = useState<CanvasTool>(null);
   const [hubOpen, setHubOpen] = useState(false);
+  const [liveChartOpen, setLiveChartOpen] = useState(false);
   const [hubRefresh, setHubRefresh] = useState(0);
   const [hubSaving, setHubSaving] = useState(false);
   const [saveToast, setSaveToast] = useState<string | null>(null);
@@ -268,6 +270,9 @@ export default function App() {
           <button type="button" className="btn-ghost" onClick={() => setHubOpen(true)}>
             Review Hub
           </button>
+          <button type="button" className="btn-ghost" onClick={() => setLiveChartOpen(true)}>
+            实时 K 线
+          </button>
           <button
             type="button"
             className="btn-primary"
@@ -286,6 +291,8 @@ export default function App() {
       </header>
 
       {saveToast && <div className="save-toast">{saveToast}</div>}
+
+      <LiveChartModal open={liveChartOpen} onClose={() => setLiveChartOpen(false)} />
 
       <ReviewHubModal
         open={hubOpen}
