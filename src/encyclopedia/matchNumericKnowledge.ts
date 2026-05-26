@@ -60,7 +60,9 @@ export async function matchEncyclopediaByNumericKnowledge(
   const topK = options?.topK ?? 12;
   const knowledge = await loadEncyclopediaKnowledge();
   if (!knowledge?.pages.length) {
-    throw new Error("缺少百科数值索引。请运行 npm run encyclopedia:learn 生成 knowledge.json");
+    throw new Error(
+      "缺少百科数值索引。请在本机运行 npm run encyclopedia:learn，或 npm run encyclopedia:upload-blob 上传到 Vercel Blob 并配置 VITE_ENCYCLOPEDIA_BASE_URL",
+    );
   }
 
   const pages = knowledge.pages.filter((p) => p.kind === "chart_slide" && hasNumericWindows(p));

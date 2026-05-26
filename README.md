@@ -39,7 +39,28 @@ npm run encyclopedia:build
 npm run encyclopedia:learn
 ```
 
-索引输出在 `public/encyclopedia-data/`（`index.json`、`knowledge.json`、`thumbs/`、`previews/` 体积较大，已加入 `.gitignore`，需在每台机器本地生成）。
+索引输出在 `public/encyclopedia-data/`（体积大，已 `.gitignore`）。
+
+### 部署到 Vercel Blob（推荐，访问者无需本地 build）
+
+只需**你**在本机构建一次，再上传到 [Vercel Blob](https://vercel.com/docs/storage/vercel-blob)：
+
+1. Vercel 控制台 → **Storage** → **Blob** → Create → 复制 **Read/Write Token**
+2. 本机已跑完 `encyclopedia:build` + `encyclopedia:learn` 后：
+
+```bash
+export BLOB_READ_WRITE_TOKEN=vercel_blob_rw_...
+npm run encyclopedia:upload-blob
+# 断点续传：npm run encyclopedia:upload-blob -- --resume
+# 仅 JSON：npm run encyclopedia:upload-blob -- --json-only
+```
+
+3. 脚本结束会打印 `VITE_ENCYCLOPEDIA_BASE_URL=...`，填入：
+   - 本机 `.env`
+   - Vercel Project → **Settings → Environment Variables**（Production / Preview）
+4. 重新部署 Vercel。线上会从 Blob CDN 拉 `knowledge.json` 与 slide 图片。
+
+未配置 `VITE_ENCYCLOPEDIA_BASE_URL` 时，仍从本地 `public/encyclopedia-data/` 读取（适合纯本机开发）。
 
 ## 快捷键
 

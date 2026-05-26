@@ -1,6 +1,7 @@
 import type { EncyclopediaIndex } from "./types";
+import { encyclopediaDataUrl } from "./assetBase";
 
-const INDEX_URL = "/encyclopedia-data/index.json";
+const INDEX_URL = encyclopediaDataUrl("index.json");
 
 let cached: EncyclopediaIndex | null = null;
 
@@ -21,7 +22,7 @@ export async function loadEncyclopediaIndex(
 }
 
 export function encyclopediaAssetUrl(relativePath: string): string {
-  return `/encyclopedia-data/${relativePath}`;
+  return encyclopediaDataUrl(relativePath);
 }
 
 export function encyclopediaThumbUrl(thumb: string): string {

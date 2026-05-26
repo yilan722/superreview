@@ -1,4 +1,5 @@
 import type { StoredNumericProfile } from "./numericProfile";
+import { encyclopediaDataUrl } from "./assetBase";
 
 export interface KnowledgeChunk {
   barStart: number;
@@ -33,7 +34,7 @@ export interface EncyclopediaKnowledge {
   pages: KnowledgePage[];
 }
 
-const KNOWLEDGE_URL = "/encyclopedia-data/knowledge.json";
+const KNOWLEDGE_URL = encyclopediaDataUrl("knowledge.json");
 let cached: EncyclopediaKnowledge | null = null;
 
 export async function loadEncyclopediaKnowledge(

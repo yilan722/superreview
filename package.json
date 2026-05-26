@@ -11,7 +11,8 @@
     "encyclopedia:build:sample": "python3 scripts/encyclopedia/build_index.py --pdf \"$ENCYCLOPEDIA_PDF\" --out public/encyclopedia-data --from 1 --to 200",
     "encyclopedia:previews": "python3 scripts/encyclopedia/build_index.py --pdf \"$ENCYCLOPEDIA_PDF\" --out public/encyclopedia-data --previews-only",
     "encyclopedia:chart-scores": "python3 scripts/encyclopedia/build_index.py --pdf \"$ENCYCLOPEDIA_PDF\" --out public/encyclopedia-data --chart-scores-only",
-    "encyclopedia:learn": "python3 scripts/encyclopedia/build_knowledge.py --out public/encyclopedia-data --resume"
+    "encyclopedia:learn": "python3 scripts/encyclopedia/build_knowledge.py --out public/encyclopedia-data --resume",
+    "encyclopedia:upload-blob": "node scripts/encyclopedia/upload_blob.mjs"
   },
   "dependencies": {
     "html2canvas": "^1.4.1",
@@ -22,6 +23,7 @@
   "devDependencies": {
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.2",
+    "@vercel/blob": "^1.1.1",
     "@vitejs/plugin-react": "^4.4.1",
     "typescript": "^5.8.3",
     "vite": "^6.3.5"
